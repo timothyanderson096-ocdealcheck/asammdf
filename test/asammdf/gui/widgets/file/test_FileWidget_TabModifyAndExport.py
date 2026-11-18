@@ -12,6 +12,46 @@ from test.asammdf.gui.widgets.test_BaseFileWidget import TestFileWidget
 
 
 class TestTabModifyAndExport(TestFileWidget):
+    def test_lab_filter_round_trip(self):
+        key = "test/natural_sort_old"
+        self.addCleanup(self.settings.setValue, key, self.settings.value(key))
+        self.settings.setValue(key, False)
+        self.setUpFileWidget(measurement_file=self.measurement_file, default=True)
+        self.widget.aspects.setCurrentIndex(1)
+        self.widget.filter_view.setCurrentText("Natural sort")
+
+        items = [self.widget.filter_tree.topLevelItem(i) for i in range(2)]
+        for item in items:
+            item.setCheckState(0, QtCore.Qt.CheckState.Checked)
+        names = [item.name for item in items]
+        expected = {item.entry: item.name for item in items}
+        labels = [item.text(0) for item in items]
+        self.assertNotEqual(names, labels)
+
+        path = pathlib.Path(self.test_workspace, "channels.lab")
+        with (
+            mock.patch.object(QtWidgets.QFileDialog, "getSaveFileName", return_value=(str(path), "")),
+            mock.patch.object(QtWidgets.QInputDialog, "getText", return_value=("lab", True)),
+        ):
+            self.widget.save_filter_list()
+
+        with self.subTest("saved channel names"):
+            self.assertCountEqual(path.read_text().split("[lab]\n")[1].splitlines(), names)
+
+        for source in ("new", "legacy"):
+            with self.subTest(source):
+                if source == "legacy":
+                    path.write_text("[lab]\n" + "\n".join(labels))
+                self.widget.clear_filter()
+                self.assertEqual(self.widget._selected_filter, {})
+                self.widget.load_filter_list(file_name=path)
+                self.assertEqual(self.widget._selected_filter, expected)
+
+        with self.subTest("legacy source disambiguates repeated channel names"):
+            path.write_text("[lab]\ntime —— OnChange\n$CalibrationLog —— missing bus\n")
+            self.widget.load_filter_list(file_name=path)
+            self.assertEqual(self.widget._selected_filter, {(6, 0): "time"})
+
     def test_PushButton_ScrambleTexts(self):
         """
         Events:

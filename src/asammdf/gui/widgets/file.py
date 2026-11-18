@@ -1555,13 +1555,13 @@ class FileWidget(WithMDIArea, Ui_file_widget, QtWidgets.QWidget):
                         continue
 
                     if item.checkState(0) == QtCore.Qt.CheckState.Checked:
-                        signals.append(item.text(0))
+                        signals.append(item.name)
             else:
                 while item := iterator.value():
                     iterator += 1
 
                     if item.checkState(0) == QtCore.Qt.CheckState.Checked:
-                        signals.append(item.text(0))
+                        signals.append(item.name)
 
             suffix = file_name.suffix.lower()
             if suffix == ".lab":
@@ -1583,6 +1583,17 @@ MultiRasterSeparator;&
                     output.write(f"[{section_name}]\n")
                 output.write("\n".join(natsorted(signals)))
 
+    def _resolve_legacy_lab_label(self, label):
+        # Older exports included the acquisition source from the Natural sort view.
+        for separator in re.finditer(" —— ", label):
+            name = label[: separator.start()]
+            for entry in self.mdf.channels_db.get(name, ()):
+                source = self.mdf.groups[entry[0]].channel_group.acq_source
+                bus = source.path if source and source.path else "None"
+                if label[separator.end() :] == bus.rstrip():
+                    return entry, name
+        return None
+
     def load_filter_list(self, event=None, file_name=None):
         if file_name is None:
             file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1602,10 +1613,12 @@ MultiRasterSeparator;&
             ):
                 return
 
+        is_lab = False
         if not isinstance(file_name, dict):
             file_name = Path(file_name)
 
-            if file_name.suffix.lower() == ".lab":
+            is_lab = file_name.suffix.lower() == ".lab"
+            if is_lab:
                 info = load_lab(file_name)
                 if info:
                     if len(info) > 1:
@@ -1639,6 +1652,9 @@ MultiRasterSeparator;&
             if channel in channels_db:
                 entry = channels_db[channel][0]
                 _channels[entry] = channel
+            elif is_lab and (match := self._resolve_legacy_lab_label(channel)):
+                entry, name = match
+                _channels[entry] = name
 
         channels = _channels
 
